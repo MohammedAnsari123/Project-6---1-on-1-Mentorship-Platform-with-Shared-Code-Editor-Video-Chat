@@ -6,6 +6,7 @@ const generateSessionCode = require('../utils/generateCode');
 // @access  Private
 const createSession = async (req, res) => {
   try {
+    console.log('User creating session:', req.user._id);
     const session = await Session.create({
       mentorId: req.user._id,
       sessionCode: generateSessionCode(),
@@ -13,6 +14,7 @@ const createSession = async (req, res) => {
 
     res.status(201).json(session);
   } catch (error) {
+    console.error('SERVER SESSION CREATE ERROR:', error);
     res.status(400).json({ message: error.message });
   }
 };

@@ -21,7 +21,8 @@ const Dashboard = () => {
       const { data } = await api.post('/sessions/create');
       navigate(`/session/${data.sessionCode}`);
     } catch (err) {
-      alert('Failed to create session');
+      console.error('Session creation error:', err);
+      alert(err.response?.data?.message || 'Failed to create session');
     }
   };
 

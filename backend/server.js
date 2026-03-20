@@ -1,6 +1,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const axios = require('axios');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
@@ -54,6 +55,10 @@ io.on('connection', (socket) => {
     socket.to(sessionId).emit('language-update', language);
   });
 
+  socket.on('code-execution-result', ({ sessionId, result }) => {
+    socket.to(sessionId).emit('execution-update', result);
+  });
+
   socket.on('send-message', async (data) => {
     const { sessionId, sessionDbId, senderId, senderName, message, timestamp } = data;
     
@@ -93,6 +98,60 @@ io.on('connection', (socket) => {
 
 app.get('/', (req, res) => {
   res.send('API is running...');
+});
+
+// Code Execution Proxy — uses Piston V1 API (V2 is now whitelisted/paid)
+app.post('/api/execute', async (req, res) => {
+  const { language, version, files } = req.body;
+  const code = files?.[0]?.content || '';
+  
+  // Map language names to Piston V1 identifiers (all tested & verified)
+  const langMap = {
+    'javascript': 'js',
+    'typescript': 'ts',
+    'python': 'python3',
+    'java': 'java',
+    'cpp': 'cpp',
+    'c': 'c',
+    'ruby': 'ruby',
+    'go': 'go',
+    'rust': 'rust',
+    'php': 'php',
+    'swift': 'swift',
+    'kotlin': 'kotlin',
+    'csharp': 'csharp',
+    'bash': 'bash',
+  };
+  
+  const pistonLang = langMap[language] || language;
+
+  try {
+    console.log(`Executing ${pistonLang} code via Piston V1...`);
+    const response = await axios.post('https://emkc.org/api/v1/piston/execute', {
+      language: pistonLang,
+      source: code,
+    }, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 15000,
+    });
+
+    console.log('Execution success:', response.data.ran ? 'ran' : 'failed');
+    
+    // Normalize V1 response to match our frontend expectations
+    res.json({
+      run: {
+        output: response.data.output || response.data.stdout || 'No output',
+        stderr: response.data.stderr || '',
+      },
+      language: response.data.language,
+      version: response.data.version,
+    });
+  } catch (err) {
+    console.error('Execution proxy error:', err.response?.data || err.message);
+    res.status(500).json({ 
+      message: err.response?.data?.message || 'Code execution failed. Please try again.' 
+    });
+  }
 });
 
 app.use('/api/auth', authRoutes);
