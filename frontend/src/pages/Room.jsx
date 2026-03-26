@@ -27,6 +27,11 @@ const Room = () => {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isVideoOn, setIsVideoOn] = useState(true);
 
+  // UI States
+  const [isJoined, setIsJoined] = useState(false);
+  const [mediaError, setMediaError] = useState('');
+  const [isRequestingMedia, setIsRequestingMedia] = useState(false);
+
   // Refs
   const chatEndRef = useRef(null);
   const localVideoRef = useRef(null);
@@ -39,30 +44,21 @@ const Room = () => {
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
 
-    const initSession = async () => {
+    const fetchSessionDetails = async () => {
       try {
         const { data } = await api.get(`/sessions/${sessionId}`);
         setSession(data);
         
-        // Get media
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setLocalStream(stream);
-        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-
-        // Socket Join
-        if (!socket.connected) socket.connect();
-        socket.emit('join-room', { sessionId: data.sessionCode });
-
         // Load Message History
         const msgRes = await api.get(`/sessions/${data._id}/messages`);
         setMessages(msgRes.data);
       } catch (err) {
-        console.error('Session Init Error:', err);
+        console.error('Session Fetch Error:', err);
         navigate('/dashboard');
       }
     };
 
-    initSession();
+    fetchSessionDetails();
 
     // Socket Listeners (General)
     socket.on('code-update', (newCode) => setCode(newCode));
@@ -76,6 +72,42 @@ const Room = () => {
       if (localStream) localStream.getTracks().forEach(t => t.stop());
     };
   }, [sessionId, user, navigate]);
+
+  const startSession = async () => {
+    setIsRequestingMedia(true);
+    setMediaError('');
+    try {
+      // Explicit user gesture triggers permission prompt
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } }, 
+        audio: true 
+      });
+      
+      setLocalStream(stream);
+      setIsJoined(true);
+
+      // Socket Join only after media is ready
+      if (!socket.connected) socket.connect();
+      socket.emit('join-room', { sessionId: session.sessionCode });
+
+      // Small delay to ensure ref is bound
+      setTimeout(() => {
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      }, 100);
+
+    } catch (err) {
+      console.error('Media Access Error:', err);
+      if (err.name === 'NotAllowedError') {
+        setMediaError('Permission denied. Please allow camera and microphone access in your browser settings.');
+      } else if (err.name === 'NotFoundError') {
+        setMediaError('No camera or microphone found on this device.');
+      } else {
+        setMediaError('Could not access media devices. Please check your hardware or try a different browser.');
+      }
+    } finally {
+      setIsRequestingMedia(false);
+    }
+  };
 
   // Sync Remote Stream to Video Element
   useEffect(() => {
@@ -161,7 +193,51 @@ const Room = () => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden relative">
+        {/* Pre-Join Overlay */}
+        {!isJoined && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-50/90 backdrop-blur-md">
+            <div className="bg-white p-10 rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full text-center space-y-6 transform animate-in fade-in zoom-in duration-300">
+              <div className="mx-auto w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mb-4">
+                <VideoIcon size={40} className="text-indigo-600" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">Ready to join?</h1>
+                <p className="text-slate-500 text-sm mt-2">To start the session, we need access to your camera and microphone. This allows you and your peer to communicate in real-time.</p>
+              </div>
+
+              {mediaError && (
+                <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-start gap-3 text-left">
+                  <div className="bg-rose-100 p-1 rounded-full text-rose-600 mt-0.5"><MicOff size={14} /></div>
+                  <p className="text-rose-600 text-xs font-bold leading-relaxed">{mediaError}</p>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <button
+                  onClick={startSession}
+                  disabled={isRequestingMedia}
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-indigo-200 disabled:opacity-50"
+                >
+                  {isRequestingMedia ? 'Initializing Hardware...' : 'Enable Media & Join'}
+                </button>
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className="w-full py-3 bg-white hover:bg-slate-50 text-slate-400 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all"
+                >
+                  Return to Dashboard
+                </button>
+              </div>
+              
+              <div className="flex items-center justify-center gap-6 pt-4 border-t border-slate-100 opacity-50">
+                <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div><span className="text-[10px] font-bold uppercase tracking-tighter">HD Video</span></div>
+                <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div><span className="text-[10px] font-bold uppercase tracking-tighter">Low Latency</span></div>
+                <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div><span className="text-[10px] font-bold uppercase tracking-tighter">Encrypted</span></div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Editor Area */}
         <div className="flex-1 flex flex-col border-r border-slate-200 bg-white">
            <div className="flex items-center justify-between px-4 py-2 bg-slate-50/50 border-b border-slate-200">
