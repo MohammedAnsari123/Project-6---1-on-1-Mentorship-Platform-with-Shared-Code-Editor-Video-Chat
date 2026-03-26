@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: 'https://project-6-1-on-1-mentorship-platform.onrender.com/api',
 });
 
 // Add token to headers if it exists
